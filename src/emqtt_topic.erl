@@ -8,7 +8,7 @@
 %% the License for the specific language governing rights and
 %% limitations under the License.
 %%
-%% Developer of the eMQTT Code is <ery.lee@gmail.com>
+%% Developer of the eMQTT Code is <ery.lee@gmail.com>, <hfeeki@gmail.com>
 %% Copyright (c) 2012 Ery Lee.  All rights reserved.
 %%
 -module(emqtt_topic).
@@ -38,6 +38,10 @@
 %% ------------------------------------------------------------------------
 
 -include("emqtt.hrl").
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
  
 -export([new/1,
 		 type/1,
@@ -46,7 +50,7 @@
 		 triples/1,
 		 words/1]).
 
--export([test/0]).
+%% -export([test/0]).
 
 -define(MAX_LEN, 64*1024).
 
@@ -136,8 +140,12 @@ include_wildcard(["#"|_T]) -> true;
 include_wildcard(["+"|_T]) -> true;
 include_wildcard([_H|T]) -> include_wildcard(T).
 
+%%
+%% Unit test
+%%
+-ifdef(TEST).
 
-test() ->
+validate_test() ->
 	true = validate({subscribe, "a/b/c"}),
 	true = validate({subscribe, "/a/b"}),
 	true = validate({subscribe, "/+/x"}),
@@ -145,3 +153,10 @@ test() ->
 	false = validate({subscribe, "a/#/c"}),
 	ok.
 
+match_test() ->
+    ok.
+
+valid_test() ->
+    ok.
+
+-endif. %% end of ifdef(TEST)

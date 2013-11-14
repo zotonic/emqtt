@@ -95,7 +95,7 @@ handle_call({go, Sock}, _From, _State) ->
                parse_state      = emqtt_frame:initial_state(),
                message_id       = 1,
                client_is_auth   = false,
-               access_control   = application:get_env(access_control),
+               access_control   = acl_module(),
                subtopics        = [],
                awaiting_ack     = gb_trees:empty(),
                awaiting_rel     = gb_trees:empty()})}.
@@ -196,7 +196,7 @@ process_received_bytes(<<>>, State) ->
 process_received_bytes(Bytes,
                        State = #state{ parse_state = ParseState,
                                        conn_name   = ConnStr }) ->
-    ?INFO("~p~n", [Bytes]),
+    % ?INFO("~p~n", [Bytes]),
     case emqtt_frame:parse(Bytes, ParseState) of
     {more, ParseState1} ->
         {noreply,
@@ -225,7 +225,7 @@ process_frame(Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{type = Type}},
     KeepAlive1 = emqtt_keep_alive:activate(KeepAlive),
     case validate_frame(Type, Frame) of 
     ok ->
-        ?INFO("frame from ~s: ~p", [ClientId, Frame]),
+        ?DEBUG("frame from ~s: ~p", [ClientId, Frame]),
         handle_retained(Type, Frame),
         process_request(Type, Frame, State#state{keep_alive=KeepAlive1});
     {error, Reason} ->
@@ -275,11 +275,7 @@ process_request(?CONNECT,
 process_request(?PUBLISH, Frame=#mqtt_frame{
                                     fixed = #mqtt_frame_fixed{qos = ?QOS_0}}, State) ->
     Msg = make_msg(Frame),
-    with_access_control(State#state.access_control, 
-                        publish,
-                        Msg#mqtt_msg.topic,
-                        fun() -> emqtt_router:publish(Msg) end,
-                        State#state.client_auth),
+    publish_acl(State#state.access_control, Msg, State#state.client_auth),
     {ok, State};
 
 process_request(?PUBLISH,
@@ -288,11 +284,7 @@ process_request(?PUBLISH,
                   variable = #mqtt_frame_publish{message_id = MsgId}}, 
                 State=#state{socket=Sock}) ->
     Msg = make_msg(Frame),
-    with_access_control(State#state.access_control, 
-                        publish,
-                        Msg#mqtt_msg.topic,
-                        fun() -> emqtt_router:publish(Msg) end,
-                        State#state.client_auth),
+    publish_acl(State#state.access_control, Msg, State#state.client_auth),
     send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{ type = ?PUBACK },
                               variable = #mqtt_frame_publish{ message_id = MsgId}}),
     {ok, State};
@@ -303,11 +295,7 @@ process_request(?PUBLISH,
                   variable = #mqtt_frame_publish{message_id = MsgId}}, 
                 State=#state{socket=Sock}) ->
     Msg = make_msg(Frame),
-    with_access_control(State#state.access_control, 
-                        publish,
-                        Msg#mqtt_msg.topic,
-                        fun() -> emqtt_router:publish(Msg) end,
-                        State#state.client_auth),
+    publish_acl(State#state.access_control, Msg, State#state.client_auth),
     put({msg, MsgId}, pubrec),
     send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{type = ?PUBREC},
               variable = #mqtt_frame_publish{ message_id = MsgId}}),
@@ -349,11 +337,7 @@ process_request(?SUBSCRIBE,
                   payload = undefined},
                 #state{socket=Sock} = State) ->
 
-    [   with_access_control(State#state.access_control, 
-                            subscribe, 
-                            {Name,Qos},
-                            fun() -> emqtt_router:subscribe({Name,Qos}, self()) end,
-                            State#state.client_auth)
+    [   subscribe_acl(State#state.access_control, {Name,Qos}, self(), State#state.client_auth)
         || #mqtt_topic{name=Name, qos=Qos} <- Topics],
 
     GrantedQos = [Qos || #mqtt_topic{qos=Qos} <- Topics],
@@ -415,11 +399,7 @@ make_will_msg(#mqtt_frame_connect{ will_retain = Retain,
 send_will_msg(#state{will_msg = undefined}) ->
     ignore;
 send_will_msg(#state{will_msg = WillMsg} = State) ->
-    with_access_control(State#state.access_control, 
-                        publish,
-                        WillMsg#mqtt_msg.topic,
-                        fun() -> emqtt_router:publish(WillMsg) end,
-                        State#state.client_auth).
+    publish_acl(State#state.access_control, WillMsg, State#state.client_auth).
 
 send_frame(Sock, Frame) ->
     erlang:port_command(Sock, emqtt_frame:serialise(Frame)).
@@ -452,8 +432,8 @@ control_throttle(State = #state{ connection_state = Flow,
 stop(Reason, State ) ->
     {stop, Reason, State}.
 
-valid_client_id(ClientId) ->
-    ClientIdLen = length(ClientId),
+valid_client_id(ClientId) when is_binary(ClientId) ->
+    ClientIdLen = size(ClientId),
     1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
 
 handle_retained(?PUBLISH, #mqtt_frame{fixed = #mqtt_frame_fixed{retain = false}}) ->
@@ -513,20 +493,38 @@ make_msg(#mqtt_frame{
               payload    = Payload}.
 
 
-with_access_control(undefined, _Action, _TopicOrMsg, Fun, _ClientAuth) ->
-    Fun();
-with_access_control({M,F}, Action, TopicOrMsg, Fun, ClientAuth) ->
-    case M:F(Action, TopicOrMsg, ClientAuth) of
-        true ->
-            Fun();
-        false -> 
-            ?ERROR("denied ~p to ~p for ~p", [Action, topic1(TopicOrMsg), ClientAuth]),
-            {error, eacces};
-        handled ->
-            ok
+subscribe_acl(undefined, {_,_} = NameQos, Pid, _ClientAuth) ->
+    emqtt_router:subscribe(NameQos, Pid);
+subscribe_acl({Mod,Args}, {Topic,Qos}, Pid, ClientAuth) ->
+    case erlang:apply(Mod, subscribe, [{Topic, Qos}, Pid, ClientAuth | Args]) of
+        ok -> 
+            ok;
+        {ok, MaybeNewTopic} ->
+            emqtt_router:subscribe({MaybeNewTopic,Qos}, Pid);
+        {error, _} = Error ->
+            ?ERROR("denied subscribe to ~p for ~p (~p)", [Topic, ClientAuth, Error]),
+            Error
     end.
 
-topic1(#mqtt_msg{topic=Topic}) -> Topic;
-topic1({Name,_Qos}) -> Name;
-topic1(Topic) -> Topic.
+publish_acl(undefined, Msg, _ClientAuth) ->
+    emqtt_router:publish(Msg);
+publish_acl({Mod,Args}, Msg, ClientAuth) ->
+    case erlang:apply(Mod, publish, [Msg, ClientAuth | Args]) of
+        ok -> 
+            ok;
+        {ok, MaybeNewMsg} ->
+            emqtt_router:publish(MaybeNewMsg);
+        {error, _} = Error ->
+            ?ERROR("denied publish to ~p for ~p (~p)", [Msg#mqtt_msg.topic, ClientAuth, Error]),
+            Error
+    end.
 
+acl_module() ->
+    case application:get_env(access_control) of
+        {ok, {Mod, Args}} when is_atom(Mod), is_list(Args) ->
+            {list_to_atom("emqtt_auth_"++atom_to_list(Mod)), Args};
+        {ok, Mod} when is_atom(Mod) ->
+            {list_to_atom("emqtt_auth_"++atom_to_list(Mod)), []};
+        undefined -> 
+            undefined
+    end.

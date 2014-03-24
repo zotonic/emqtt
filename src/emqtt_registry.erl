@@ -17,8 +17,6 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -export([start_link/0, 
 		size/0,
 		register/2,
@@ -55,7 +53,7 @@ unregister(ClientId) ->
 
 init([]) ->
 	ets:new(client, [set, protected, named_table]),
-	?INFO("~p is started.", [?MODULE]),
+	lager:info("~p is started.", [?MODULE]),
     {ok, #state{}}. % clientid -> {pid, monitor}
 
 %%--------------------------------------------------------------------------

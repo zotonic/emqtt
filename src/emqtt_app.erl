@@ -19,8 +19,6 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -behaviour(application).
 
 %% Application callbacks
@@ -34,10 +32,10 @@
 %% @spec start(atom(), list()) -> {ok, pid()}
 %%
 start(_StartType, _StartArgs) ->
-	?INFO("starting emqtt on node '~s'", [node()]),
+	lager:info("starting emqtt on node '~s'", [node()]),
     {ok, SupPid} = emqtt_sup:start_link(listeners()),
 	register(emqtt, self()),
-	?INFO_MSG("emqtt broker is running now."),
+	lager:info("emqtt broker is running now."),
 	{ok, SupPid}.
 
 listeners() ->

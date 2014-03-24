@@ -32,8 +32,6 @@
 
 -include("emqtt_internal.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -define(CLIENT_ID_MAXLEN, 23).
 
 -record(state, {socket,
@@ -84,7 +82,7 @@ handle_call({go, Sock}, _From, _State) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
     %FIXME: merge to registry
     emqtt_client_monitor:mon(self()),
-    ?INFO("accepting connection (~s)", [ConnStr]),
+    lager:info("accepting connection (~s)", [ConnStr]),
     {reply, ok, 
       control_throttle(
        #state{ socket           = Sock,
@@ -150,13 +148,13 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
-    ?ERROR("sock error: ~p~n", [Reason]), 
+    lager:error("sock error: ~p~n", [Reason]), 
     {noreply, State};
 
 handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
     case emqtt_keep_alive:state(KeepAlive) of
     idle ->
-        ?INFO("keep alive timeout: ~p", [State#state.conn_name]),
+        lager:info("keep alive timeout: ~p", [State#state.conn_name]),
         {stop, normal, State};
     active ->
         KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
@@ -210,13 +208,13 @@ process_received_bytes(Bytes,
               Rest,
               State1 #state{ parse_state = PS});
         {err, Reason, State1} ->
-            ?ERROR("MQTT protocol error ~p for connection ~p~n", [Reason, ConnStr]),
+            lager:error("MQTT protocol error ~p for connection ~p~n", [Reason, ConnStr]),
             stop({shutdown, Reason}, State1);
         {stop, State1} ->
             stop(normal, State1)
         end;
     {error, Error} ->
-        ?ERROR("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
+        lager:error("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
         stop({shutdown, Error}, State)
     end.
 
@@ -225,7 +223,7 @@ process_frame(Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{type = Type}},
     KeepAlive1 = emqtt_keep_alive:activate(KeepAlive),
     case validate_frame(Type, Frame) of 
     ok ->
-        ?DEBUG("frame from ~s: ~p", [ClientId, Frame]),
+        lager:debug("frame from ~s: ~p", [ClientId, Frame]),
         handle_retained(Type, Frame),
         process_request(Type, Frame, State#state{keep_alive=KeepAlive1});
     {error, Reason} ->
@@ -255,10 +253,10 @@ process_request(?CONNECT,
                             end,
                 case StateAuth#state.client_is_auth of
                     false ->
-                        ?ERROR_MSG("MQTT login failed - no credentials"),
+                        lager:error("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
-                        ?INFO("connect from clientid: ~s, ~p", [ClientId, AlivePeriod]),
+                        lager:info("connect from clientid: ~s, ~p", [ClientId, AlivePeriod]),
                         ok = emqtt_registry:register(ClientId, self()),
                         KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
                         {?CONNACK_ACCEPT,
@@ -370,7 +368,7 @@ process_request(?PINGREQ, #mqtt_frame{}, #state{socket=Sock, keep_alive=KeepAliv
     {ok, State#state{keep_alive=KeepAlive1}};
 
 process_request(?DISCONNECT, #mqtt_frame{}, State=#state{client_id=ClientId}) ->
-    ?INFO("~s disconnected", [ClientId]),
+    lager:info("~s disconnected", [ClientId]),
     {stop, State}.
 
 next_msg_id(State = #state{ message_id = 16#ffff }) ->
@@ -407,7 +405,7 @@ send_frame(Sock, Frame) ->
 %%----------------------------------------------------------------------------
 network_error(Reason,
               State = #state{ conn_name  = ConnStr}) ->
-    ?INFO("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
+    lager:info("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
     send_will_msg(State),
     % todo: flush channel after publish
     stop({shutdown, conn_closed}, State).
@@ -464,7 +462,7 @@ validate_frame(?UNSUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_
                         not emqtt_topic:validate({subscribe, Topic})],
     case ErrTopics of
     [] -> ok;
-    _ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
+    _ -> lager:error("error topics: ~p", [ErrTopics]), {error, badtopic}
     end;
 
 validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_table = Topics}}) ->
@@ -472,7 +470,7 @@ validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_ta
                         not (emqtt_topic:validate({subscribe, Topic}) and (Qos < 3))],
     case ErrTopics of
     [] -> ok;
-    _ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
+    _ -> lager:error("error topics: ~p", [ErrTopics]), {error, badtopic}
     end;
 
 validate_frame(_Type, _Frame) ->
@@ -502,7 +500,7 @@ subscribe_acl({Mod,Args}, {Topic,Qos}, Pid, ClientAuth) ->
         {ok, MaybeNewTopic} ->
             emqtt_router:subscribe({MaybeNewTopic,Qos}, Pid);
         {error, _} = Error ->
-            ?ERROR("denied subscribe to ~p for ~p (~p)", [Topic, ClientAuth, Error]),
+            lager:error("denied subscribe to ~p for ~p (~p)", [Topic, ClientAuth, Error]),
             Error
     end.
 
@@ -515,7 +513,7 @@ publish_acl({Mod,Args}, Msg, ClientAuth) ->
         {ok, MaybeNewMsg} ->
             emqtt_router:publish(MaybeNewMsg);
         {error, _} = Error ->
-            ?ERROR("denied publish to ~p for ~p (~p)", [Msg#mqtt_msg.topic, ClientAuth, Error]),
+            lager:error("denied publish to ~p for ~p (~p)", [Msg#mqtt_msg.topic, ClientAuth, Error]),
             Error
     end.
 

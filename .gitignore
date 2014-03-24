@@ -3,4 +3,5 @@ ebin
 var
 *.log
 rel/emqtt
+deps/*
 

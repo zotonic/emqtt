@@ -19,8 +19,6 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -export([start_link/0,
 		add/2,
 		check/2,
@@ -53,8 +51,8 @@ init([]) ->
 	{Name, Opts} = get_auth(),
 	AuthMod = authmod(Name),
 	ok = AuthMod:init(Opts),
-	?INFO("authmod is ~p", [AuthMod]),
-	?INFO("~p is started", [?MODULE]),
+	lager:debug("authmod is ~p", [AuthMod]),
+	lager:info("~p is started", [?MODULE]),
 	{ok, #state{authmod=AuthMod, authopts=Opts}}.
 
 get_auth() ->

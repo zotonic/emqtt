@@ -21,8 +21,6 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -export([start_link/0]).
 
 -export([topics/0,
@@ -101,7 +99,7 @@ init([]) ->
 		{attributes, record_info(fields, topic)}]),
 	mnesia:add_table_copy(topic, node(), ram_copies),
 	ets:new(subscriber, [bag, named_table, {keypos, 2}]),
-	?INFO_MSG("emqtt_router is started."),
+	lager:info("emqtt_router is started."),
 	{ok, #state{}}.
 
 handle_call({subscribe, {Topic, Qos}, Client}, _From, State) ->

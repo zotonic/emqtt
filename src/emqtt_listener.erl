@@ -16,8 +16,6 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -export([spec/2, listener_started/3, listener_stopped/3]).
 
 spec({Listener, SockOpts}, Callback) ->
@@ -47,7 +45,7 @@ tcp_listener_addresses({Host, Port, Family0})
     [{IPAddress, Port, Family} ||
         {IPAddress, Family} <- emqtt_net:getaddr(Host, Family0)];
 tcp_listener_addresses({_Host, Port, _Family0}) ->
-    ?ERROR("invalid port ~p - not 0..65535~n", [Port]),
+    lager:error("invalid port ~p - not 0..65535~n", [Port]),
     throw({error, {invalid_port, Port}}).
 
 tcp_listener_addresses_auto(Port) ->
@@ -61,8 +59,8 @@ listener_started(Protocol, IPAddress, Port) ->
     %% We need the ip to distinguish e.g. 0.0.0.0 and 127.0.0.1
     %% We need the host so we can distinguish multiple instances of the above
     %% in a cluster.
-	?INFO("tcp listener started: ~p ~p:~p", [Protocol, IPAddress, Port]).
+	lager:info("tcp listener started: ~p ~p:~p", [Protocol, IPAddress, Port]).
 
 listener_stopped(Protocol, IPAddress, Port) ->
-	?INFO("tcp listener stopped: ~p ~p:~p", [Protocol, IPAddress, Port]).
+	lager:info("tcp listener stopped: ~p ~p:~p", [Protocol, IPAddress, Port]).
 

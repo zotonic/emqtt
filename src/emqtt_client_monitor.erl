@@ -19,8 +19,6 @@
 
 -include("emqtt_internal.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -export([start_link/0, mon/1]).
 
 -behaviour(gen_server).
@@ -45,7 +43,7 @@ start_link() ->
 init([]) ->
 	ets:new(clientmon, [set, protected, named_table]),
 	ets:new(clientmon_reverse, [set, protected, named_table]),
-	?INFO("~p is started.", [?MODULE]),
+	lager:info("~p is started.", [?MODULE]),
     {ok, #state{}}.
 
 handle_call(Req, _From, State) ->

@@ -18,8 +18,6 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
-
 -behaviour(gen_server).
 
 -export([start_link/8]).
@@ -67,14 +65,14 @@ init({IPAddress, Port, SocketOpts,
                           end,
                           lists:duplicate(ConcurrentAcceptorCount, dummy)),
             {ok, {LIPAddress, LPort}} = inet:sockname(LSock),
-            ?INFO("started ~s on ~s:~p~n",
+            lager:info("started ~s on ~s:~p~n",
 				[Label, ntoab(LIPAddress), LPort]),
             apply(M, F, A ++ [IPAddress, Port]),
             {ok, #state{sock = LSock,
                         on_startup = OnStartup, on_shutdown = OnShutdown,
                         label = Label}};
         {error, Reason} ->
-            ?ERROR("failed to start ~s on ~s:~p - ~p (~s)~n",
+            lager:error("failed to start ~s on ~s:~p - ~p (~s)~n",
 				[Label, ntoab(IPAddress), Port,
 				 Reason, inet:format_error(Reason)]),
             {stop, {cannot_listen, IPAddress, Port, Reason}}
@@ -92,7 +90,7 @@ handle_info(_Info, State) ->
 terminate(_Reason, #state{sock=LSock, on_shutdown = {M,F,A}, label=Label}) ->
     {ok, {IPAddress, Port}} = inet:sockname(LSock),
     gen_tcp:close(LSock),
-    ?ERROR("stopped ~s on ~s:~p~n",
+    lager:error("stopped ~s on ~s:~p~n",
            [Label, ntoab(IPAddress), Port]),
     apply(M, F, A ++ [IPAddress, Port]).
 

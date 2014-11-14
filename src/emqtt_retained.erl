@@ -35,63 +35,138 @@
 -include("emqtt.hrl").
 
 -export([start_link/0,
-		lookup/1,
-		insert/2,
-		delete/1,
-		send/2]).
+        lookup/1,
+        insert/2,
+        delete/1,
+        send/2]).
 
 -behaviour(gen_server).
 
 -export([init/1,
-		handle_call/3,
-		handle_cast/2,
-		handle_info/2,
-		terminate/2,
-		code_change/3]).
+        handle_call/3,
+        handle_cast/2,
+        handle_info/2,
+        terminate/2,
+        code_change/3]).
 
 -record(state, {}).
 
 start_link() ->
-	gen_server2:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server2:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 lookup(Topic) ->
-	ets:lookup(retained_msg, Topic).
+    case ets:lookup(retained_msg, Topic) of
+        [] -> undefined;
+        [{_, Msg}] -> {ok, Msg}
+    end.
 
 insert(Topic, Msg) ->
-	gen_server2:cast(?MODULE, {insert, Topic, Msg}).
+    ets:insert(retained_msg, {Topic, Msg}).
 
 delete(Topic) ->
-	gen_server2:cast(?MODULE, {delete, Topic}).
+    ets:delete(retained_msg, Topic).
 
 send(Topic, Client) ->
-	[Client ! {route, Msg} ||{_, Msg} <- lookup(Topic)].
+    case lookup(Topic) of
+        undefined -> ok;
+        {ok, Msg} -> 
+            Client ! {route, Msg}
+    end.
+
+%%
+%% Gen-server callbacks
+%%
 
 init([]) ->
-	ets:new(retained_msg, [set, protected, named_table]),
-	lager:info("~p is started.", [?MODULE]),
-	{ok, #state{}}.
+    ets:new(retained_msg, [set, public, named_table,
+            {read_concurrency, true}, {write_concurrency, true}]),
+    lager:info("~p is started.", [?MODULE]),
+    {ok, #state{}}.
+
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-	{stop, {badreq,Req}, State}.
-
-handle_cast({insert, Topic, Msg}, State) ->
-	ets:insert(retained_msg, {Topic, Msg}),
-	{noreply, State};
-
-handle_cast({delete, Topic}, State) ->
-	ets:delete(retained_msg, Topic),
-	{noreply, State};
+    {stop, {badreq,Req}, State}.
 
 handle_cast(Msg, State) ->
-	{stop, {badmsg, Msg}, State}.
+    {stop, {badmsg, Msg}, State}.
 
 handle_info(Info, State) ->
-	{stop, {badinfo, Info}, State}.
+    {stop, {badinfo, Info}, State}.
 
 terminate(_Reason, _State) ->
-	ok.
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
-	{ok, State}.
+    {ok, State}.
 
+%%
+%% Tests
+%%
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-define(setup(F), {setup, fun setup/0, fun teardown/1, F}).
+
+is_started_test_() ->
+    ?setup(fun(Pid) ->
+                [?_assertEqual(Pid, whereis(?MODULE))]
+        end).
+
+insert_lookup_delete_test_() ->
+    ?setup(fun(_) ->
+                %% Some inserts
+                insert(<<"a/b">>, "hello"),
+                {ok, Hello} = lookup(<<"a/b">>),
+
+                insert(<<"a/b/c">>, "boo"),
+                {ok, Boo} = lookup(<<"a/b/c">>),
+
+                %% Not found
+                undefined = lookup(<<"a/b/d">>),
+
+                %% Deleting topics which are not there.
+                delete(<<"/a/b/d">>),
+                undefined = lookup(<<"a/b/d">>),
+
+                %% Deleting an existing topic
+                delete(<<"a/b">>),
+                undefined = lookup(<<"a/b">>),
+
+                [?_assertEqual("hello", Hello),
+                 ?_assertEqual("boo", Boo)]
+        end).
+
+send_test_() ->
+    ?setup(fun(_) ->
+                insert(<<"a/b">>, "hello"),
+
+                send(<<"a/b">>, self()),
+                Message1 = receive
+                    {route, Msg1} -> Msg1
+                after 
+                    10 -> undefined
+                end,
+
+                send(<<"a/b/c">>, self()),
+                Message2 = receive
+                    {route, Msg2} -> Msg2
+                after 
+                    10 -> undefined
+                end,
+
+                [?_assertEqual("hello", Message1),
+                 ?_assertEqual(undefined, Message2)]
+        end).
+
+setup() ->
+    {ok, Pid} = start_link(),
+    Pid.
+
+teardown(_) ->
+    gen_server2:call(?MODULE, stop).
+
+-endif.
 

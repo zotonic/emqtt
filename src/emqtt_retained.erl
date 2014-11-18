@@ -55,9 +55,15 @@ start_link() ->
     gen_server2:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 lookup(Topic) ->
-    case ets:lookup(retained_msg, Topic) of
-        [] -> undefined;
-        [{_, Msg}] -> {ok, Msg}
+    case whereis(?MODULE) of
+        undefined -> 
+            lager:warning("~p is not started.", [?MODULE]),
+            undefined;
+        _ ->
+            case ets:lookup(retained_msg, Topic) of
+                [] -> undefined;
+                [{_, Msg}] -> {ok, Msg}
+            end
     end.
 
 insert(Topic, Msg) ->

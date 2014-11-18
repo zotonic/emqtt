@@ -42,8 +42,6 @@
 		 triples/1,
 		 words/1]).
 
--export([test/0]).
-
 -define(MAX_LEN, 64*1024).
 
 new(Name) when is_binary(Name) ->
@@ -134,11 +132,31 @@ include_wildcard([$+|_T]) -> true;
 include_wildcard([_H|T]) -> include_wildcard(T).
 
 
-test() ->
-	true = validate({subscribe, <<"a/b/c">>}),
-	true = validate({subscribe, <<"/a/b">>}),
-	true = validate({subscribe, <<"/+/x">>}),
-	true = validate({subscribe, <<"/a/b/c/#">>}),
-	false = validate({subscribe, <<"a/#/c">>}),
-	ok.
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 
+validate_test() ->
+    true = validate({subscribe, <<"a/b/c">>}),
+    true = validate({subscribe, <<"/a/b">>}),
+    true = validate({subscribe, <<"/+/x">>}),
+    true = validate({subscribe, <<"/a/b/c/#">>}),
+    false = validate({subscribe, <<"a/#/c">>}),
+    false = validate({subscribe, <<>>}),
+    true = validate({subscribe, <<"#">>}),
+    ok.
+
+words_test() ->
+    [<<>>] = words(<<>>),
+
+    %% Normal topics
+    [<<"a">>] = words(<<"a">>),
+    [<<"a">>, <<"b">>] = words(<<"a/b">>),
+    [<<"a">>, <<"b">>, <<"c">>] = words(<<"a/b/c">>),
+
+    %% Topics may contain spaces 
+    [<<" ">>, <<"b">>] = words(<<" /b">>),
+    [<<" ">>, <<" ">>, <<>>] = words(<<" / /">>),
+
+    ok.
+
+-endif.

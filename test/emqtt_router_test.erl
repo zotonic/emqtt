@@ -76,7 +76,7 @@ wildcard_subscribe(_) ->
 start() ->
     error_logger:tty(false),
     application:start(mnesia),
-    application:start(emqtt),
+    {ok, _} = application:ensure_all_started(emqtt),
     error_logger:tty(true),
     whereis(emqtt_router).
 

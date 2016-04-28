@@ -5,4 +5,5 @@ var
 rel/emqtt
 deps/*
 .eunit/*
+test/*.beam
 
